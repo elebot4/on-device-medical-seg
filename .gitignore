@@ -1,0 +1,63 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyTorch
+*.pt
+*.pdf
+*.png
+*.swp
+*.npy
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# vscode settings & servers
+.vscode
+.ruff_cache
+
+#my folders
+import*/
+scripts/
+logs/
+
+# dev. specific folders
+experiments/
+notebooks/
+results/
+configs/
+preview/
+
+old/
+
+# slurm logs
+slurm/
+
+# notebooks
+*.ipynb
+*.ipynb_checkpoints
+**/*.log
+
+# logs
+**/slurm
+**/wandb
+
+# credentials for gauth and wandb;
+credentials
+credentials.json
