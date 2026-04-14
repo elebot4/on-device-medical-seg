@@ -1,34 +1,43 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from typing import List, Union, Callable
-
-from config import Config
-
 
 # -----------------------------------------------------------------------------
 # Building Blocks
 
 class Block(nn.Module):
-    def __init__(self, in_ch: int, out_ch: int, block_config: Config) -> None:
+    """
+    Residual block with configurable Conv-Norm-Activation layers.
+    Supports both 2D and 3D operations based on input shape configuration.
+    
+    Args:
+        in_ch: Number of input channels
+        out_ch: Number of output channels  
+        spatial_dims: Number of spatial dimensions (2 or 3)
+        norm_type: Type of normalization ('group', 'batch', 'instance', 'none')
+        act_type: Type of activation ('relu', 'gelu', 'leaky')
+        dropout: Dropout rate
+        norm_groups: Number of groups for GroupNorm
+    """
+    def __init__(self, in_ch, out_ch, spatial_dims, norm_type='group', act_type='relu', dropout=0.1, norm_groups=8):
         super().__init__()
         
         # 1. Local aliasing and configuration of operators based on spatial dimensions
-        conv = nn.Conv3d if len(block_config.input_shape) == 3 else nn.Conv2d
-        dropout = nn.Dropout3d if len(block_config.input_shape) == 3 else nn.Dropout2d
+        conv = nn.Conv3d if spatial_dims == 3 else nn.Conv2d
+        dropout_layer = nn.Dropout3d if spatial_dims == 3 else nn.Dropout2d
         
-        if block_config.norm_type == 'group':
-            norm = lambda c: nn.GroupNorm(8, c)
-        elif block_config.norm_type == 'batch':
-            norm = nn.BatchNorm3d if len(block_config.input_shape) == 3 else nn.BatchNorm2d
-        elif block_config.norm_type == 'instance':
-            norm = nn.InstanceNorm3d if len(block_config.input_shape) == 3 else nn.InstanceNorm2d
+        if norm_type == 'group':
+            norm = lambda c: nn.GroupNorm(norm_groups, c)
+        elif norm_type == 'batch':
+            norm = nn.BatchNorm3d if spatial_dims == 3 else nn.BatchNorm2d
+        elif norm_type == 'instance':
+            norm = nn.InstanceNorm3d if spatial_dims == 3 else nn.InstanceNorm2d
         else:
             norm = nn.Identity
 
-        if block_config.act_type == 'relu':
+        if act_type == 'relu':
             act = nn.ReLU
-        elif block_config.act_type == 'gelu':
+        elif act_type == 'gelu':
             act = nn.GELU
         else:
             act = lambda: nn.LeakyReLU(0.01)
@@ -40,42 +49,55 @@ class Block(nn.Module):
             conv(in_ch, out_ch, 3, padding=1, bias=False),
             norm(out_ch),
             act(),
-            dropout(block_config.dropout),
+            dropout_layer(dropout),
             conv(out_ch, out_ch, 3, padding=1, bias=False),
             norm(out_ch),
             act(),
         )
 
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+    def forward(self, x):
+        return self.net(x) + self.shortcut(x)
 
 # -----------------------------------------------------------------------------
 # Main Model
 
 class UNet(nn.Module):
-    def __init__(self, config: Config) -> None:
+    """
+    U-Net architecture for medical image segmentation.
+    
+    Supports both 2D and 3D operations with configurable:
+    - Number of encoder/decoder stages
+    - Base number of channels with 2x scaling per stage
+    - Deep supervision with multi-scale outputs
+    - Residual blocks with skip connections
+    """
+    def __init__(self, input_shape, in_channels, out_channels, num_stages, base_chs, 
+                 norm_type='group', act_type='relu', dropout=0.1, norm_groups=8, deep_supervision=True):
         super().__init__()
-        self.config = config
+        self.deep_supervision = deep_supervision
 
         # 1. Local aliasing and configuration of operators based on spatial dimensions
-        conv = nn.Conv3d if len(config.input_shape) == 3 else nn.Conv2d
-        conv_t = nn.ConvTranspose3d if len(config.input_shape) == 3 else nn.ConvTranspose2d
+        conv = nn.Conv3d if len(input_shape) == 3 else nn.Conv2d
+        conv_t = nn.ConvTranspose3d if len(input_shape) == 3 else nn.ConvTranspose2d
+        spatial_dims = len(input_shape)
         
         # Channel schedule: e.g., [32, 64, 128, 256]
-        chs = [config.base_chs * (2**i) for i in range(config.num_stages)]
+        chs = [base_chs * (2**i) for i in range(num_stages)]
         
         # --- Encoder ---
         self.encoders = nn.ModuleList()
         self.downs = nn.ModuleList()
-        curr_in = config.in_channels
-        for i in range(config.num_stages - 1):
-            self.encoders.append(Block(curr_in, chs[i], config))
+        curr_in = in_channels
+        for i in range(num_stages - 1):
+            self.encoders.append(
+                Block(curr_in, chs[i], spatial_dims, norm_type, act_type, dropout, norm_groups)
+            )
             self.downs.append(conv(chs[i], chs[i], kernel_size=2, stride=2))
             curr_in = chs[i]
 
         # --- Bottleneck ---
-        self.bottleneck = Block(chs[-2], chs[-1], config)
+        self.bottleneck = Block(chs[-2], chs[-1], spatial_dims, norm_type, act_type, dropout, norm_groups)
         
         # --- Decoder & Deep Supervision Heads ---
         self.ups = nn.ModuleList()
@@ -83,15 +105,17 @@ class UNet(nn.Module):
         self.heads = nn.ModuleList() # One head for each decoder stage for deepsupervision
 
         # We build the decoder from deepest to shallowest
-        for i in reversed(range(config.num_stages - 1)):
+        for i in reversed(range(num_stages - 1)):
             self.ups.append(conv_t(chs[i+1], chs[i], kernel_size=2, stride=2))
-            self.decoders.append(Block(chs[i] * 2, chs[i], config))
-            self.heads.append(conv(chs[i], config.out_channels, kernel_size=1))
+            self.decoders.append(
+                Block(chs[i] * 2, chs[i], spatial_dims, norm_type, act_type, dropout, norm_groups)
+            )
+            self.heads.append(conv(chs[i], out_channels, kernel_size=1))
 
         self.apply(self._init_weights)
         print(f"UNet initialized: {sum(p.numel() for p in self.parameters())/1e6:.2f}M params")
 
-    def _init_weights(self, m: nn.Module) -> None:
+    def _init_weights(self, m):
         conv_layers = (nn.Conv3d, nn.ConvTranspose3d, nn.Conv2d, nn.ConvTranspose2d)
         norm_layers = (nn.GroupNorm, nn.BatchNorm3d, nn.InstanceNorm3d, nn.BatchNorm2d, nn.InstanceNorm2d)
         if isinstance(m, conv_layers):
@@ -100,7 +124,7 @@ class UNet(nn.Module):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
 
-    def forward(self, x) -> Union[torch.Tensor, List[torch.Tensor]]:
+    def forward(self, x):
         # --- Encoder ---
         skips = []
         for enc, down in zip(self.encoders, self.downs):
@@ -120,11 +144,39 @@ class UNet(nn.Module):
             x = dec(x)
             outputs.append(head(x))
             
-        # 
-        return outputs if self.training else outputs[-1]
+        # Return all outputs for deep supervision during training, only final for inference
+        return outputs if (self.training and self.deep_supervision) else outputs[-1]
         
 
 if __name__ == "__main__":
+    # Simple test of the model
+    # Set some test parameters
+    input_shape = (64, 64, 64)
+    in_channels = 1
+    out_channels = 2  
+    num_stages = 4
+    base_chs = 32
+    norm_type = 'group'
+    act_type = 'relu'
+    dropout = 0.1
+    norm_groups = 8
+    deep_supervision = True
+    
+    model = UNet()
+    x = torch.randn(1, in_channels, *input_shape)
+    
+    print(f"Input shape: {x.shape}")
+    
+    model.train()
+    outputs = model(x)
+    if isinstance(outputs, list):
+        print(f"Training mode - Deep supervision outputs: {[o.shape for o in outputs]}")
+    else:
+        print(f"Training mode output: {outputs.shape}")
+    
+    model.eval() 
+    output = model(x)
+    print(f"Inference mode output: {output.shape}")
 
 
     

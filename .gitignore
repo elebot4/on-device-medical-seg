@@ -36,6 +36,7 @@ var/
 import*/
 scripts/
 logs/
+data/
 
 # dev. specific folders
 experiments/

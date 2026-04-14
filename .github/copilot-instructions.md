@@ -1,62 +1,82 @@
-# Medical Segmentation Mobile - Workspace Instructions
+# [ON-DEVICE MEDICAL SEGMENTATION] - Workspace Instructions
 
 ## Project Overview
 
-TBD
+The goal of this project is to  build a repository to: 
 
-## Architecture Philosophy (karpathy-inspired)
-
-- **Minimal**: No configuration monsters and minimal factory patterns. The code should be straightforward to read and modify.
-- **Explicit Control**: Direct parameter control - specify exactly what you want
-- **Explicit Precision**: Direct precision management, no hidden autocast
-- **Working Baseline**: Code runs end-to-end without extensive configuration
+1 - Provide a clean, minimal codebase to train several 2D/3D UNet variants for medical segmentation
+2 - Allow to explore and evaluate the performance trade-offs of different quantizations and memory optimizations techniques
+3 - Export models to edge-friendly formats (ONNX) for deployment on mobile embedded devices
+4 - Allow to produce a "segmentation summary", a radiology like report that summarizes the findings of the segmentation results in a human readable format.
 
 ## Current State & Priorities
 
-TBD
+[TBD - update this with current priorities]
 
 ## Code Organization
 
+Follow this structure when adding or modifying code. Do not mix responsibilities across files.
+
 ```
 src/
-├── config.py         # Central dataclass configuration (nanochat-style)
-├── model.py          # 3D/2D UNet with deep supervision
-├── dataset.py        # Data loading with hardware alignment
-├── transforms.py     # Medical image augmentations
-├── loss.py           # Dice + Composite losses
-├── optim.py          # Smart optimizer factory
-├── train.py          # Training loop with AMP
-└── utils.py          # Memory reporting utilities
+├── config.py         # Minimal runtime configuration
+├── model.py          # UNet definitions
+├── dataset.py        # Dataset loading
+├── transforms.py     # Preprocessing and augmentation
+├── loss.py           # Loss functions
+├── optim.py          # Optimizer and scheduler setup
+├── train.py          # Training loop
+├── eval.py           # Evaluation and metrics
+├── export.py         # ONNX export
+├── quantize.py       # Quantization utilities and experiments
+├── report.py         # Segmentation summary generation
+└── utils.py          # Small shared utilities
 
-config/               # YAML configurations for different views
-scripts/              # Data preparation utilities
+config/               # Minimal experiment configs
+scripts/              # Data preparation and helper scripts
+tests/ 
+data/                 # Raw and processed data  
 ```
 
-## Coding Standards
 
-### Configuration Pattern
-- Use dataclass-based config (see `src/config.py`)
-- Single source of truth with YAML + CLI override capability
-- Explicit parameter specification - no auto-calculation
+### User interaction
 
-### Model Architecture
-- Support both 2D/3D operations
-- Support deep supervision with strided masking for pyramid levels
+- Remove filler words (e.g., just, really, basically, actually, simply)
+- Omit pleasantries (e.g., sure, certainly, of course)
+- Prefer concise wording and short synonyms
+- Eliminate hedging (e.g., avoid might, could, worth considering)
+- Use direct, assertive statements
+- Prioritize clarity over tone
 
-### Training Loop
-- Mixed precision training (AMP) by default
+### Feedback & Critique
 
-### Optimizer settings
-- Smart weight decay (decouple conv weights from biases/norms)
+- Be direct; do not soften criticism
+- Prioritize highest-impact issues first
+- Distinguish between must-fix vs nice-to-have
+- Suggest exact improvements, not general advice
+- Avoid rewriting everything unless necessary—target key changes
 
-### File Naming & Imports
-- Use absolute imports: `from src.module import function`
-- Configuration files: `config/{view_type}.yaml` (e.g., `2d_axi.yaml`)
-- Scripts focus on single tasks: `train.py`, `prepare.py`, `eval.py`
+### Coding
 
-## Development Workflow
+- Provide minimal, readable solutions
+- Use clear, descriptive, unambiguous names
+- Prefer straightforward implementations over abstraction layers
+- Avoid unnecessary dependencies; rely on essential libraries only
+- Eliminate hidden complexity and implicit behavior
+- Keep functions small and single-purpose
+- Validate inputs and fail early with explicit errors
+- Use docstrings for purpose and intent; avoid commenting obvious code
 
-TBD
+
+### Testing
+
+- Prefer simple, local validation in `if __name__ == "__main__":` blocks.
+- Test on a small, representative subset of inputs (2–5 cases), not the full dataset.
+- Never iterate over all files or large directories for validation.
+- Focus on edge cases and typical cases, not exhaustive coverage.
+- Do not generate generic unit tests without a clear, specific purpose.
+- Keep tests minimal, fast, and deterministic.
+- Fail fast with clear assertions; avoid silent checks.
 
 ### Training Pipeline
 ```bash
@@ -77,75 +97,3 @@ python src/eval.py --checkpoint checkpoints/best_model.pth --test_dir ./data/tes
 - `python src/train.py --help` - See all configuration options
 - `docker build -t med_seg .` - Build training container
 
-## Key Patterns to Follow
-
-### 1. Karpathy-Style Configuration
-```python
-@dataclass
-class Config:
-    # Explicit parameters - no magic auto-calculation
-    num_stages: int = 4
-    base_chs: int = 32
-    lr: float = 3e-4
-    
-    # Clean validation in __post_init__
-    def __post_init__(self):
-        if self.milestones is None:
-            self.milestones = [0.5, 0.75]
-```
-
-### 2. Hardware-Aware Design
-```python
-# Align dimensions for efficient GPU computation
-def pad_to_multiple(size, multiple=16):
-    return ((size + multiple - 1) // multiple) * multiple
-```
-
-### 4. Medical Domain Specifics
-- **Volume Assumptions**: `.npy` files in `{data_dir}/images/` and `{data_dir}/masks/`
-- **Deep Supervision**: Multi-scale loss with strided targets
-- **Augmentation Chain**: Spatial → Intensity → Resolution transforms
-
-## Anti-Patterns to Avoid
-
-❌ **Auto-calculated Dependencies**: Hidden parameter calculations  
-✅ **Explicit Parameters**: Specify exactly what you want
-
-❌ **Single Dial Abstraction**: Magic auto-scaling based on one parameter  
-✅ **Direct Control**: Set `num_stages: 4`, `base_chs: 32` explicitly
-
-❌ **Factory Patterns**: `ModelFactory.create(type="unet", variant="3d")`  
-✅ **Direct Instantiation**: `UNet3D(config)` with runtime operator selection
-
-❌ **Scattered Configs**: Parameters spread across multiple files  
-✅ **Central Config**: Single dataclass with YAML/CLI override
-
-## Testing Strategy
-
-TBD
-
-## Deployment Pipeline
-
-1. **Training**: Standard PyTorch model  
-2. **Quantization**: Post-training quantization for mobile  
-3. **Export**: ONNX, TensorFlow Lite, CoreML formats  
-4. **Validation**: Accuracy retention checks after optimization
-
-## Quick Reference
-
-### Common Tasks
-- **Add new model architecture**: Extend `model.py` with operator selection pattern
-- **New augmentation**: Add to `transforms.py` augmentation chain
-- **Custom loss**: Implement in `loss.py` with deep supervision support
-- **Different dataset**: Modify `dataset.py` loading logic, keep same interface
-
-### Configuration Examples
-```yaml
-# config/mobile_2d.yaml - Optimized for mobile deployment
-model_depth: 3        # Smaller model
-base_channels: 16     # Reduced capacity
-mixed_precision: true # Memory efficiency
-deep_supervision: false # Simplify for mobile
-```
-
-*Following nanochat principles: This should be a "cohesive, minimal, readable, hackable, maximally-forkable strong baseline" for medical image segmentation.*

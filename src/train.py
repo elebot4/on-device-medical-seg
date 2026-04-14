@@ -1,53 +1,200 @@
+"""
+Medical Segmentation Training - nanoGPT style configuration
+Simple, transparent, hackable.
+"""
+import os
+import time
+from contextlib import nullcontext
+
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler, autocast # For Mixed Precision
-import time
-from typing import Tuple
+from torch.cuda.amp import GradScaler, autocast
 
-from config import Config
-from model import UNet
-from dataset import SegmentationDataset, get_dataloaders
+from dataset import get_dataloaders
 from loss import dice_loss
+from model import UNet
+from optim import get_optimizer, get_scheduler
 
-def train() -> None:
+# -----------------------------------------------------------------------------
+# Default config values - just simple variables!
+# I/O settings
+out_dir = 'checkpoints'
+eval_interval = 10
+log_interval = 5
+save_interval = 10
+device = 'cuda'
+
+# Data settings  
+data_dir = 'data/processed/Task01_BrainTumour/imagesTr'
+input_shape = (64, 64, 64)  # spatial dimensions
+batch_size = 2
+
+# Model architecture
+in_channels = 1
+out_channels = 1 
+num_stages = 4
+base_chs = 32
+dropout = 0.1
+norm_groups = 8
+deep_supervision = True
+act_type = 'relu'  # relu, gelu, leaky  
+norm_type = 'group'  # group, batch, instance, none
+
+# Training settings
+nb_epochs = 100
+learning_rate = 3e-4
+weight_decay = 1e-2
+beta1 = 0.9 
+beta2 = 0.999
+
+# Optimizer
+optimizer = 'AdamW'  # AdamW, SGD
+momentum = 0.9  # For SGD
+
+# Scheduler
+scheduler = 'PolyLR'  # PolyLR, OneCycleLR, MultiStepLR
+gamma = 0.9  # For PolyLR decay
+
+# Mixed precision
+dtype = 'float16' if torch.cuda.is_available() else 'float32'
+
+# torch.compile() settings (PyTorch 2.0+)
+compile_model = True
+compile_mode = 'default'  # default, reduce-overhead, max-autotune
+
+# -----------------------------------------------------------------------------
+
+# Load config overrides
+#exec(open('src/config.py').read()) 
+
+# Convert to context for mixed precision
+ptdtype = {'float32': torch.float32, 'float16': torch.float16}[dtype]
+ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
+
+def train(out_dir, eval_interval, log_interval, save_interval, device,
+         data_dir, input_shape, batch_size, in_channels, out_channels, 
+         num_stages, base_chs, dropout, norm_groups, deep_supervision, 
+         act_type, norm_type, nb_epochs, learning_rate, weight_decay,
+         beta1, beta2, optimizer_type, momentum, scheduler_type, gamma,
+         dtype, compile_model, compile_mode):
+    """
+    Main training function with explicit parameters.
+    
+    Args:
+        out_dir: Output directory for checkpoints
+        eval_interval: Epochs between evaluations
+        log_interval: Batches between log prints
+        save_interval: Epochs between checkpoint saves
+        device: Device to train on ('cuda' or 'cpu')
+        data_dir: Path to processed data directory
+        input_shape: Spatial dimensions tuple
+        batch_size: Batch size
+        in_channels, out_channels: Input and output channels
+        num_stages: Number of U-Net stages
+        base_chs: Base number of channels
+        dropout: Dropout rate
+        norm_groups: Groups for GroupNorm
+        deep_supervision: Enable deep supervision
+        act_type: Activation type ('relu', 'gelu', 'leaky')
+        norm_type: Normalization type ('group', 'batch', 'instance', 'none')
+        nb_epochs: Number of training epochs
+        learning_rate: Learning rate
+        weight_decay: Weight decay
+        beta1, beta2: Adam betas
+        optimizer_type: Optimizer type ('AdamW', 'SGD')
+        momentum: SGD momentum
+        scheduler_type: Scheduler type ('PolyLR', 'OneCycleLR', 'MultiStepLR')
+        gamma: Scheduler gamma
+        dtype: Mixed precision dtype ('float16' or 'float32')
+        compile_model: Whether to compile model
+        compile_mode: Compilation mode
+    """
     # 1. Setup
-    cfg = Config()
-    device = torch.device(cfg.device)
+    device_obj = torch.device(device)
     torch.manual_seed(42)
     
-    # 2. Data
-    train_loader, val_loader = get_dataloaders(cfg)
+    # Ensure output directory exists
+    os.makedirs(out_dir, exist_ok=True)
     
-    # 3. Model, Optimizer, Scaler
-    model = UNet(cfg).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=1e-2)
+    # 2. Data
+    train_loader, val_loader = get_dataloaders(data_dir, batch_size, num_stages)
+    
+    # 3. Model, Optimizer, Loss, Scheduler, Scaler
+    model = UNet(
+        input_shape=input_shape,
+        in_channels=in_channels, 
+        out_channels=out_channels,
+        num_stages=num_stages,
+        base_chs=base_chs,
+        norm_type=norm_type,
+        act_type=act_type,
+        dropout=dropout,
+        norm_groups=norm_groups,
+        deep_supervision=deep_supervision
+    ).to(device_obj)
+    
+    try:
+        print(f"Compiling model with mode='{compile_mode}'...")
+        model = torch.compile(model, mode=compile_mode)
+        print("Model compilation successful")
+    except Exception as e:
+        print(f"Warning: Failed to compile model: {e}")
+        print("Continuing with uncompiled model...")
+        compile_model = False
+    
+    optimizer = get_optimizer(
+        model=model,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        optimizer_type=optimizer_type, 
+        beta1=beta1,
+        beta2=beta2,
+        momentum=momentum
+    )
+    
+    # Calculate total training steps for scheduler
+    total_steps = nb_epochs * len(train_loader)
+    scheduler = get_scheduler(
+        optimizer=optimizer,
+        num_training_steps=total_steps,
+        scheduler_type=scheduler_type,
+        learning_rate=learning_rate,
+        gamma=gamma
+    )
+    
     scaler = GradScaler() # For Mixed Precision
     
     print(f"Starting training on {device}...")
+    print(f"- Model: UNet {num_stages} stages, {base_chs} base channels")
+    print(f"- Compiled: {'Yes' if compile_model else 'No'} (mode={compile_mode if compile_model else 'N/A'})")
+    print(f"- Input: {input_shape}, batch_size={batch_size}")
+    print(f"- Training: {nb_epochs} epochs, lr={learning_rate}")
+    print(f"- Scheduler: {scheduler.__class__.__name__}")
+    print(f"- Optimizer: {optimizer}, weight_decay={weight_decay}")
+    print(f"- Train samples: {len(train_loader.dataset)}, Val samples: {len(val_loader.dataset)}")
 
-    for epoch in range(cfg.nb_epochs):
+    for epoch in range(nb_epochs):
         model.train()
         t0 = time.time()
         
         for batch_idx, (images, masks) in enumerate(train_loader):
-            images = images.to(device, non_blocking=True)
-            masks = masks.to(device, non_blocking=True) # Index tensor [B, D, H, W]
+            images = images.to(device_obj, non_blocking=True)
+            masks = masks.to(device_obj, non_blocking=True) # Index tensor [B, D, H, W]
 
             # Mixed Precision Forward Pass
             with autocast():
-                preds = model(images) # List of [Res1, Res2, ...]
+                preds = model(images) # List of [Res1, Res2, ...] 
                 
                 total_loss = 0
-                # Deep Supervision loop using strided slicing
                 for i, p in enumerate(preds):
                     stride = 2**i
-                    # Strided slice: [B, D, H, W] -> [B, D/s, H/s, W/s]
-                    # This is O(1) memory/time overhead
-                    t_idx = masks[:, ::stride, ::stride, ::stride] if stride > 1 else masks
+                    # Strided slicing for 2D and 3D masks
+                    stride_tuple = tuple([slice(None)] + [slice(None, None, stride)] * len(input_shape))
+                    t_idx = masks[stride_tuple]  
                     
                     # GPU-side one-hotting for Dice
-                    t_onehot = F.one_hot(t_idx, num_classes=cfg.out_channels)
+                    # Doing this on GPU reduce CPU-GPU transfer overhead
+                    t_onehot = F.one_hot(t_idx, num_classes=out_channels)
                     t_onehot = t_onehot.permute(0, 4, 1, 2, 3).float()
 
                     # Loss Calculation
@@ -56,15 +203,18 @@ def train() -> None:
                     
                     weight = 1 / (2**i)
                     total_loss += weight * (loss_ce + loss_dice)
-                
-                # Normalize by sum of weights
-                total_loss /= sum([1/(2**i) for i in range(len(preds))])
-
+            
             # Backward Pass with Scaler
             optimizer.zero_grad(set_to_none=True)
             scaler.scale(total_loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            scheduler.step()
+            
+            # Log training progress
+            if batch_idx % log_interval == 0:
+                lr = scheduler.get_last_lr()[0]
+                print(f"Epoch {epoch+1}/{nb_epochs} [{batch_idx}/{len(train_loader)}] Loss: {total_loss.item():.4f} LR: {lr:.6f}")
 
         # 4. Validation 
         model.eval()
@@ -76,21 +226,64 @@ def train() -> None:
                 out = model(images) 
                 
                 # Simple Dice Metric for monitoring
-                p = F.one_hot(out.argmax(1), num_classes=cfg.out_channels).permute(0, 4, 1, 2, 3).float()
-                t = F.one_hot(masks, num_classes=cfg.out_channels).permute(0, 4, 1, 2, 3).float()
+                p = F.one_hot(out.argmax(1), num_classes=out_channels).permute(0, 4, 1, 2, 3).float()
+                t = F.one_hot(masks, num_classes=out_channels).permute(0, 4, 1, 2, 3).float()
                 val_dice += (1 - dice_loss(p, t)) # 1 - (1-dice) = dice
 
         dt = time.time() - t0
-        print(f"Epoch {epoch+1}/{cfg.nb_epochs} | Loss: {total_loss.item():.4f} | Val Dice: {val_dice/len(val_loader):.4f} | Time: {dt:.2f}s")
-
+        print(f"Epoch {epoch+1}/{nb_epochs} | Loss: {total_loss.item():.4f} | Val Dice: {val_dice/len(val_loader):.4f} | Time: {dt:.2f}s")
+                   
         # 5. Save Checkpoint 
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % save_interval == 0:
             checkpoint = {
                 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
-                'config': cfg,
+                'scheduler': scheduler.state_dict(),
+                'epoch': epoch
             }
-            torch.save(checkpoint, f"ckpt_epoch_{epoch+1}.pt")
+            torch.save(checkpoint, os.path.join(out_dir, f"ckpt_epoch_{epoch+1}.pt"))
 
 if __name__ == "__main__":
-    train()
+    try:
+        train(
+            out_dir=out_dir,
+            eval_interval=eval_interval, 
+            log_interval=log_interval,
+            save_interval=save_interval,
+            device=device,
+            data_dir=data_dir,
+            input_shape=input_shape,
+            batch_size=batch_size,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            num_stages=num_stages,
+            base_chs=base_chs,
+            dropout=dropout,
+            norm_groups=norm_groups,
+            deep_supervision=deep_supervision,
+            act_type=act_type,
+            norm_type=norm_type,
+            nb_epochs=nb_epochs,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            beta1=beta1,
+            beta2=beta2,
+            optimizer_type=optimizer,
+            momentum=momentum,
+            scheduler_type=scheduler,
+            gamma=gamma,
+            dtype=dtype,
+            compile_model=compile_model,
+            compile_mode=compile_mode
+        )
+    except KeyboardInterrupt:
+        print("\\nTraining interrupted by user")
+    except RuntimeError as e:
+        if "out of memory" in str(e):
+            print(f"\\nCUDA out of memory error: {e}")
+            print("Try reducing batch_size or input_shape")
+        else:
+            raise
+    except Exception as e:
+        print(f"\\nTraining failed: {e}")
+        raise

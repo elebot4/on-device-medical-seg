@@ -1,14 +1,9 @@
 
 
 import torch.nn as nn
-from typing import Dict, Union, Tuple
 
 
-def get_mem_report(
-    model: nn.Module, 
-    input_shape: Union[Tuple[int, ...], None] = None,
-    optimizer_type: str = "adam"
-) -> Dict[str, Union[float, str]]:
+def get_mem_report(model, input_shape=None, optimizer_type="adam"):
     # Base parameter size (Weights)
     param_size = sum(p.nelement() * p.element_size() for p in model.parameters())
     buffer_size = sum(b.nelement() * b.element_size() for b in model.buffers())

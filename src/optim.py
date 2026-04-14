@@ -1,66 +1,68 @@
 import torch
 import torch.nn as nn
-from typing import Union
 
-from config import Config
 
-def get_optimizer(model: nn.Module, config: Config) -> torch.optim.Optimizer:
-    # --- Step 1: Weight Decay Decoupling ---
-    # We separate parameters into those that get decay and those that don't (biases/norms)
-    decay = set()
-    no_decay = set()
-    whitelist = (nn.Conv2d, nn.Conv3d, nn.ConvTranspose2d, nn.ConvTranspose3d, nn.Linear)
-    blacklist = (nn.GroupNorm, nn.BatchNorm2d, nn.BatchNorm3d, nn.InstanceNorm2d, nn.InstanceNorm3d)
-
-    for mn, m in model.named_modules():
-        for pn, p in m.named_parameters():
-            fpn = f"{mn}.{pn}" if mn else pn
-            if pn.endswith('bias'):
-                no_decay.add(fpn)
-            elif pn.endswith('weight') and isinstance(m, whitelist):
-                decay.add(fpn)
-            elif pn.endswith('weight') and isinstance(m, blacklist):
-                no_decay.add(fpn)
-
-    param_dict = {pn: p for pn, p in model.named_parameters()}
+def get_optimizer(model, learning_rate, weight_decay, optimizer_type='AdamW', beta1=0.9, beta2=0.999, momentum=0.9):
+    """
+    Configure optimizer with weight decay, following nanoGPT patterns.
+    
+    Args:
+        model: PyTorch model
+        learning_rate: Learning rate
+        weight_decay: Weight decay coefficient  
+        optimizer_type: 'AdamW' or 'SGD'
+        beta1, beta2: Adam betas
+        momentum: SGD momentum
+    
+    Supported optimizers:
+    - AdamW: Adaptive learning with decoupled weight decay
+    - SGD: Stochastic gradient descent with momentum and Nesterov
+    """
+    # Define parameter groups for weight decay  
+    param_dict = {pn: p for pn, p in model.named_parameters() if p.requires_grad}
+    
+    # Parameters with weight decay (2D+ tensors like weights)
+    decay = {pn for pn, p in param_dict.items() if p.dim() >= 2}
+    # Parameters without weight decay (1D tensors like biases, LayerNorm)
+    nodecay = {pn for pn, p in param_dict.items() if p.dim() < 2}
+    
     optim_groups = [
-        {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": config.weight_decay},
-        {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+        {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": weight_decay},
+        {"params": [param_dict[pn] for pn in sorted(list(nodecay))], "weight_decay": 0.0}
     ]
-
-    # --- Step 2: Optimizer Selection ---
-    if config.optimizer == "ADAMw":
-        return torch.optim.AdamW(optim_groups, lr=config.lr, betas=config.betas)
-    elif config.optimizer == "ADAM":
-        return torch.optim.Adam(optim_groups, lr=config.lr, betas=config.betas)
-    elif config.optimizer == "SGD":
-        return torch.optim.SGD(optim_groups, lr=config.lr, momentum=config.momentum, nesterov=True)
+    print(f"Decay params: {len(decay)}, No-decay params: {len(nodecay)}")
+    
+    if optimizer_type == "AdamW":
+        return torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(beta1, beta2))
+    elif optimizer_type == "SGD":
+        return torch.optim.SGD(optim_groups, lr=learning_rate, momentum=momentum, nesterov=True)
     else:
-        raise ValueError(f"Unknown optimizer: {config.optimizer}")
+        raise ValueError(f"Unsupported optimizer type: {optimizer_type}. Supported: 'AdamW', 'SGD'")
 
-def get_scheduler(
-    optimizer: torch.optim.Optimizer, 
-    config: Config, 
-    steps_per_epoch: int
-) -> torch.optim.lr_scheduler.LRScheduler:
-    # Total iterations is usually better for schedulers than "epochs"
-    total_steps = config.nb_epochs * steps_per_epoch
 
-    if config.scheduler == "PolyLR":
-        # Standard for medical: (1 - step/max_step)^gamma
-        return torch.optim.lr_scheduler.LambdaLR(
-            optimizer, lr_lambda=lambda s: (1 - s / total_steps) ** config.gamma
-        )
+def get_scheduler(optimizer, num_training_steps, scheduler_type='PolyLR', learning_rate=3e-4, gamma=0.9):
+    """
+    Create learning rate scheduler.
     
-    elif config.scheduler == "OneCycleLR":
-        return torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, max_lr=config.lr * 10, total_steps=total_steps
-        )
+    Args:
+        optimizer: PyTorch optimizer
+        num_training_steps: Total number of training steps
+        scheduler_type: 'PolyLR', 'OneCycleLR', or 'MultiStepLR'
+        learning_rate: Base learning rate (needed for OneCycleLR)
+        gamma: Decay factor for PolyLR/MultiStepLR
+    """
+    if scheduler_type == "PolyLR":
+        from torch.optim.lr_scheduler import PolynomialLR
+        return PolynomialLR(optimizer, total_iters=num_training_steps, power=gamma)
+    elif scheduler_type == "OneCycleLR":
+        from torch.optim.lr_scheduler import OneCycleLR
+        return OneCycleLR(optimizer, max_lr=learning_rate, total_steps=num_training_steps)
+    elif scheduler_type == "MultiStepLR":
+        from torch.optim.lr_scheduler import MultiStepLR
+
+        # Convert milestone fractions to actual steps
+        milestones = [int(frac * num_training_steps) for frac in [0.5, 0.75]]
+        return MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
+    else:
+        raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
     
-    elif config.scheduler == "MultiStepLR":
-        # Turn percentages (0.5, 0.75) into absolute step counts
-        milestones = [int(m * total_steps) for m in config.milestones]
-        return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
-    
-    # Fallback to Constant
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)

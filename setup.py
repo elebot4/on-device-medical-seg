@@ -2,8 +2,8 @@ from setuptools import find_packages, setup
 
 
 setup(
-    name="latent_ddpm",
+    name="med_seg_mobile",
     version="0.1",
-    description="N/A",
+    description="Medical Segmentation for Mobile",
     packages=find_packages(where="src"),
 )
