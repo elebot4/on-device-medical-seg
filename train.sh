@@ -1,4 +1,54 @@
 #!/bin/bash
+
+# Medical Segmentation Training Pipeline
+# Complete training setup following project guidelines
+
+set -e  # Exit on error
+
+echo "🔬 Medical Segmentation Training Pipeline"
+echo "========================================="
+
+# Check if virtual environment exists
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python -m venv venv
+fi
+
+# Activate virtual environment
+echo "Activating virtual environment..."
+source venv/bin/activate 2>/dev/null || source venv/Scripts/activate
+
+# Install dependencies
+echo "Installing dependencies..."
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Create necessary directories
+echo "Creating output directories..."
+mkdir -p checkpoints/{2d_axi,2d_cor,2d_sag,3d_fullres}
+
+# Check if processed data exists
+if [ ! -d "data/processed/Task01_BrainTumour" ]; then
+    echo "❌ Error: Processed data not found!"
+    echo "Expected: data/processed/Task01_BrainTumour/"
+    echo "Please run data preparation first:"
+    echo "  python scripts/prepare.py --raw_dir ./data/raw/Task01_BrainTumour --save_dir ./data/processed"
+    exit 1
+fi
+
+echo "✅ Found processed data"
+
+# Training options
+CONFIG=${1:-"config/2d_axi.py"}
+echo "Using config: $CONFIG"
+
+# Launch training
+echo "🚀 Starting training..."
+echo "Config: $CONFIG"
+cd src
+python train.py "../$CONFIG"
+
+echo "✅ Training completed! Check checkpoints/ directory for results."
 # Medical Segmentation Training Pipeline
 # Nanochat-inspired: single script to run the complete pipeline
 

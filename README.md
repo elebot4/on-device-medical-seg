@@ -1,108 +1,122 @@
 # 🔬 Medical Segmentation Mobile
 
-TBD
+Status: 🏗️ WIP - Phase 2 (Optimization & Edge Deployment)
 
-## ✨ Key Features (Karpathy-Inspired)
+Minimal, clean codebase for training 2D/3D UNet variants for medical image segmentation, with a focus on respecting memory constraints for edge/mobile inference. 
 
-- 🎯 **Explicit Control**: Specify exactly what you want - no hidden auto-calculations
-- 📦 **Minimal & Hackable**: No configuration monsters or factory patterns
-- 🚀 **Working Baseline**: Runs end-to-end without extensive setup
-- 📱 **Mobile-First**: Optimized for resource-constrained deployment
+Include a LLM-based report generation to summarize the findings obtained by the segmentation model.
 
-## 🚀 Quick Start  
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+## 🗺️ Project Roadmap
 
-# 2. Train with single complexity dial (nanochat-style!)
-python src/train.py --config config/2d_axi.yaml
+| Phase | Milestone | Status |
+| :--- | :--- | :--- |
+| **Phase 1** | Core Training Pipeline (2.5D/3D U-Net, Deep Supervision) | ✅ Complete |
+| **Phase 2** | **Edge Optimization (PTQ, ONNX Export & Benchmarking)** | 🚧 **In Progress** |
+| **Phase 3** | **LLM Integration (Automated Clinical Report Generation)** | 🚧 **In Progress** |
 
-# 3. Or use the complete pipeline
-bash train.sh config/mobile.yaml
-```
-
-## 🏛️ Karpathy-Style Configuration
-
-Clean, explicit parameters - no magic auto-calculations:
-
-```yaml
-# config/my_config.yaml
-num_stages: 4      # Number of encoder/decoder stages
-base_chs: 32       # Base channel count
-lr: 3e-4           # Learning rate
-batch_size: 8      # Batch size
-deep_supervision: true
-
-# Specify exactly what you want!
-```
-
-### Model Configurations
-
-| Config | Use Case | Stages | Channels | Batch |
-|--------|----------|--------|----------|-------|
-| `2d_axi.yaml` | **Default 2D** | 4 | 32 | 8 |
-
-## 📁 Project Structure (Clean & Minimal)
+## 📁 Project Structure
 
 ```
 src/
-├── config.py         # Single-dial configuration (nanochat-style)
-├── model.py          # 3D/2D UNet with deep supervision  
-├── dataset.py        # Data loading + augmentations
-├── loss.py           # Dice + composite losses
-├── optim.py          # Smart optimizer factory  
-├── train.py          # Training loop with AMP
-└── utils.py          # Memory utilities
+├── config.py         # nanoGPT-style configuration system
+├── model.py          # UNet variants (2D/3D) with deep supervision
+├── dataset.py        # Medical data loading (axial/coronal/sagittal/fullres)
+├── transforms.py     # Medical augmentations (spatial/intensity)
+├── loss.py           # Dice + CrossEntropy losses
+├── optim.py          # Optimizers (AdamW/SGD) with proper parameter grouping
+├── train.py          # Training loop 
+├── eval.py           # 2.5D Inference & evaluation 
+├── export.py         # ONNX export for mobile deployment
+├── quantize.py       # Post-training quantization utilities
+├── report.py         # Medical report generation
+└── utils.py          # Memory reporting and utilities
 
-config/               # Ready-to-use configurations
-├── 2d_axi.yaml       # Complexity 3 - 2D axial (default)
-└──
+config/               # Training configurations
+├── 2d_axi.py         # 2D axial slices (mobile-optimized)
+├── 2d_cor.py         # 2D coronal slices  
+├── 2d_sag.py         # 2D sagittal slices
+└── 3d_fullres.py     # 3D full resolution (high accuracy)
 ```
 
-## 🎯 Usage Examples
+## 🚀 Quick Start
 
-### Training Different Scales
-```bash  
-# Quick mobile model (1 min training)
-python src/train.py --config config/mobile.yaml
-
-# Standard 2D model (good accuracy/speed balance)
-python src/train.py --config config/2d_axi.yaml  
-
-# High-res research model  
-python src/train.py --config config/xl.yaml
-```
+### 1. Setup Environment
 
 ```bash
-# Fine-tune specific parameters
-python src/train.py --config config/2d_axi.yaml lr=0.001 batch_size=4
+# Clone and setup
+git clone <repository>
+cd on-device-medical-seg
 
-# Experiment with architecture
-python src/train.py --config config/2d_axi.yaml num_stages=5 base_chs=64
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-## 🔧 Data Preparation
+### 2. Prepare Data
 
 ```bash
-# Prepare BraTS dataset (or similar medical data)
+# Process raw medical data to expected format
 python scripts/prepare.py --raw_dir ./BraTS2021 --save_dir ./data/processed
 ```
 
-Expected structure:
+### 3. Train Models
+
+```bash
+# Complete training pipeline
+bash train.sh
+
+# Or specific configs
+bash train.sh config/2d_axi.py    # Mobile-optimized 2D
+bash train.sh config/3d_fullres.py # High-accuracy 3D
+
+# training parameters can be overriden in the terminal as follow
+python src/train.py config/2d_axi.py --batch_size=4 --learning_rate=0.001
 ```
-data/processed/
-├── images/           # .npy files
-│   ├── case001.npy
-│   └── case002.npy  
-└── masks/            # .npy files
-    ├── case001.npy
-    └── case002.npy
+
+## 📱 Optimization & Edge Deployment (WIP)
+
+```python
+# Export trained model
+from src.export import export_to_onnx
+export_to_onnx(model, "model.onnx", dynamic_axes=True)
+
+# Quantize for mobile
+from src.quantize import prepare_ptq, calibrate_ptq, finalize_ptq
+quantized_model = prepare_ptq(model, backend="qnnpack")
+# ... calibration ...
+final_model = finalize_ptq(quantized_model)
+```
+
+## 🏥 Medical Reports (WIP)
+
+Generate human-readable segmentation summaries:
+
+```python
+from src.report import generate_comprehensive_report
+
+report = generate_comprehensive_report(
+    predictions=model_output,
+    class_names=["background", "tumor", "edema"],
+    voxel_spacing=(1.0, 1.0, 1.0)
+)
+print(report)
+```
+
+## 🔧 Development
+
+```bash
+# Test individual components
+python src/model.py     # Test model architecture
+python src/dataset.py   # Test data loading
+python src/transforms.py # Test augmentations
+
+# Run evaluation
+python src/eval.py --checkpoint checkpoints/best_model.pth --test_dir ./data/test
 ```
 
 ## 📜 License
 
-MIT License - fork freely!
+MIT License (see LICENSE.md)
 
 ## 🙏 Acknowledgements  
 

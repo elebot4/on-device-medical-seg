@@ -2,6 +2,13 @@
 Poor Man's Config - borrowed from nanoGPT
 Example usage:
 $ python train.py config/2d_axi.py --batch_size=4 --learning_rate=0.001
+this will first run config/override_file.py, then override batch_size to 4 and learning rate to 0.001
+
+The code in this file will be run as follows from e.g. train.py:
+>>> exec(open('configurator.py').read())
+
+So it's not a Python module, it's just shuttling this code away from train.py
+The code in this script then overrides the globals()
 """
 
 import sys
@@ -12,9 +19,7 @@ for arg in sys.argv[1:]:
         # assume it's the name of a config file
         assert not arg.startswith('--')
         config_file = arg
-        print(f"Loading config from {config_file}:")
-        with open(config_file) as f:
-            print(f.read())
+        #print(f"Loading config from {config_file}:")
         exec(open(config_file).read())
     else:
         # assume it's a --key=value override
@@ -30,8 +35,9 @@ for arg in sys.argv[1:]:
             else:
                 val = literal_eval(val)
         except (ValueError, SyntaxError):
-            pass  # if that's not the case, just use the string
+            # if that goes wrong, just use the string
+            pass
         
-        # cross fingers this is a valid override
-        exec(f'{key} = {repr(val)}')
-        print(f"Override: {key} = {repr(val)}")
+        print(f"Overriding: {key} = {val}")
+        # Update global namespace
+        globals()[key] = val

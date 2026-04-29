@@ -26,12 +26,13 @@ device = 'cuda'
 
 # Data settings  
 data_dir = 'data/processed/Task01_BrainTumour/imagesTr'
-input_shape = (64, 64, 64)  # spatial dimensions
+input_shape = (64, 64, 64)  # target shape for all inputs
 batch_size = 2
+slice_mode = 'fullres'  # axi, cor, sag, fullres
 
 # Model architecture
-in_channels = 1
-out_channels = 1 
+in_channels = 4
+out_channels = 4
 num_stages = 4
 base_chs = 32
 dropout = 0.1
@@ -65,18 +66,23 @@ compile_mode = 'default'  # default, reduce-overhead, max-autotune
 # -----------------------------------------------------------------------------
 
 # Load config overrides
-#exec(open('src/config.py').read()) 
+import os
+
+_config_path = os.path.join(os.path.dirname(__file__), 'config.py')
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+exec(open(_config_path).read())
+
 
 # Convert to context for mixed precision
 ptdtype = {'float32': torch.float32, 'float16': torch.float16}[dtype]
 ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
 
 def train(out_dir, eval_interval, log_interval, save_interval, device,
-         data_dir, input_shape, batch_size, in_channels, out_channels, 
-         num_stages, base_chs, dropout, norm_groups, deep_supervision, 
-         act_type, norm_type, nb_epochs, learning_rate, weight_decay,
-         beta1, beta2, optimizer_type, momentum, scheduler_type, gamma,
-         dtype, compile_model, compile_mode):
+         data_dir, input_shape, batch_size, slice_mode,
+         in_channels, out_channels, num_stages, base_chs, dropout, 
+         norm_groups, deep_supervision, act_type, norm_type, nb_epochs, 
+         learning_rate, weight_decay, beta1, beta2, optimizer_type, 
+         momentum, scheduler_type, gamma, dtype, compile_model, compile_mode):
     """
     Main training function with explicit parameters.
     
@@ -87,8 +93,9 @@ def train(out_dir, eval_interval, log_interval, save_interval, device,
         save_interval: Epochs between checkpoint saves
         device: Device to train on ('cuda' or 'cpu')
         data_dir: Path to processed data directory
-        input_shape: Spatial dimensions tuple
+        input_shape: Target input shape for all samples
         batch_size: Batch size
+        slice_mode: Slicing mode ('axi', 'cor', 'sag', 'fullres')
         in_channels, out_channels: Input and output channels
         num_stages: Number of U-Net stages
         base_chs: Base number of channels
@@ -117,7 +124,9 @@ def train(out_dir, eval_interval, log_interval, save_interval, device,
     os.makedirs(out_dir, exist_ok=True)
     
     # 2. Data
-    train_loader, val_loader = get_dataloaders(data_dir, batch_size, num_stages)
+    train_loader, val_loader = get_dataloaders(
+        data_dir, batch_size, slice_mode=slice_mode, input_shape=input_shape
+    )
     
     # 3. Model, Optimizer, Loss, Scheduler, Scaler
     model = UNet(
@@ -168,6 +177,7 @@ def train(out_dir, eval_interval, log_interval, save_interval, device,
     print(f"- Model: UNet {num_stages} stages, {base_chs} base channels")
     print(f"- Compiled: {'Yes' if compile_model else 'No'} (mode={compile_mode if compile_model else 'N/A'})")
     print(f"- Input: {input_shape}, batch_size={batch_size}")
+    print(f"- Slice mode: {slice_mode}")
     print(f"- Training: {nb_epochs} epochs, lr={learning_rate}")
     print(f"- Scheduler: {scheduler.__class__.__name__}")
     print(f"- Optimizer: {optimizer}, weight_decay={weight_decay}")
@@ -186,21 +196,23 @@ def train(out_dir, eval_interval, log_interval, save_interval, device,
                 preds = model(images) # List of [Res1, Res2, ...] 
                 
                 total_loss = 0
-                for i, p in enumerate(preds):
+                
+                # GPU-side one-hotting for Dice
+                # Doing this on GPU reduce CPU-GPU transfer overhead
+                t_onehot = F.one_hot(masks, num_classes=out_channels)
+                t_onehot = t_onehot.movedim(-1, 1).float()  # [B, ..., C] -> [B, C, ...]
+
+                for i, p in enumerate(reversed(preds)):
+                    
                     stride = 2**i
                     # Strided slicing for 2D and 3D masks
-                    stride_tuple = tuple([slice(None)] + [slice(None, None, stride)] * len(input_shape))
+                    stride_tuple = (...,) + (slice(None, None, stride),) * len(input_shape)
                     t_idx = masks[stride_tuple]  
+                    t_onehot_idx = t_onehot[stride_tuple]
                     
-                    # GPU-side one-hotting for Dice
-                    # Doing this on GPU reduce CPU-GPU transfer overhead
-                    t_onehot = F.one_hot(t_idx, num_classes=out_channels)
-                    t_onehot = t_onehot.permute(0, 4, 1, 2, 3).float()
-
                     # Loss Calculation
-                    loss_ce = F.cross_entropy(p, t_idx)
-                    loss_dice = dice_loss(F.softmax(p, dim=1), t_onehot)
-                    
+                    loss_ce = F.cross_entropy(p, t_idx) # remove singleton channel dim
+                    loss_dice = dice_loss(F.softmax(p, dim=1), t_onehot_idx)
                     weight = 1 / (2**i)
                     total_loss += weight * (loss_ce + loss_dice)
             
@@ -226,8 +238,9 @@ def train(out_dir, eval_interval, log_interval, save_interval, device,
                 out = model(images) 
                 
                 # Simple Dice Metric for monitoring
-                p = F.one_hot(out.argmax(1), num_classes=out_channels).permute(0, 4, 1, 2, 3).float()
-                t = F.one_hot(masks, num_classes=out_channels).permute(0, 4, 1, 2, 3).float()
+                p = F.one_hot(out.argmax(dim = 1), num_classes=out_channels).movedim(-1, 1).float()
+                t = F.one_hot(masks, num_classes=out_channels).movedim(-1, 1).float()
+                
                 val_dice += (1 - dice_loss(p, t)) # 1 - (1-dice) = dice
 
         dt = time.time() - t0
@@ -254,6 +267,7 @@ if __name__ == "__main__":
             data_dir=data_dir,
             input_shape=input_shape,
             batch_size=batch_size,
+            slice_mode=slice_mode,
             in_channels=in_channels,
             out_channels=out_channels,
             num_stages=num_stages,
@@ -277,13 +291,13 @@ if __name__ == "__main__":
             compile_mode=compile_mode
         )
     except KeyboardInterrupt:
-        print("\\nTraining interrupted by user")
+        print(f"\nTraining interrupted by user")
     except RuntimeError as e:
         if "out of memory" in str(e):
-            print(f"\\nCUDA out of memory error: {e}")
+            print(f"\nCUDA out of memory error: {e}")
             print("Try reducing batch_size or input_shape")
         else:
             raise
     except Exception as e:
-        print(f"\\nTraining failed: {e}")
+        print(f"\nTraining failed: {e}")
         raise

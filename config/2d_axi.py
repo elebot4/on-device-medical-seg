@@ -1,19 +1,23 @@
 # 2D Axial slice training - mobile optimized
-# Small model for fast inference on edge devices
+# Fast training on axial slices for efficient mobile deployment
 
-out_dir = 'out-2d-axi' 
+# I/O settings
+out_dir = 'checkpoints/2d_axi'
+
+# Data settings  
 input_shape = (256, 256)  # 2D axial slices
-in_channels = 4  # multi-modal input
+batch_size = 8
+slice_mode = 'axi'  # axial slices
 
-# Mobile-optimized model  
-num_stages = 3  # smaller for speed
-base_chs = 16   # fewer channels
-dropout = 0.0   # no dropout for inference speed
+# Model architecture (smaller for mobile)
+num_stages = 3  # Fewer stages for mobile
+base_chs = 24   # Smaller base channels
+dropout = 0.1
 
-# Fast training
-batch_size = 8  # can use larger batch with 2D
-learning_rate = 1e-3  # can go higher with smaller model
-nb_epochs = 50  # fewer epochs needed
+# Training settings
+nb_epochs = 50  # Faster training
+learning_rate = 1e-3
+weight_decay = 5e-3
 
-# For mobile deployment
-dtype = 'float16'  # mixed precision for speed
+# Mixed precision for efficiency
+dtype = 'float16'

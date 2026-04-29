@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 def dice_loss(p, targets, smooth=1e-6):
     """
-    Stateless dice loss function for 2d & 3d segmentation.
+    dice loss function for 2d & 3d segmentation.
     """
 
     reduce_axis = tuple(range(2, p.ndim)) # exclude batch & channel dimensions
@@ -18,11 +18,12 @@ def dice_loss(p, targets, smooth=1e-6):
     intersection = (p * targets).sum(dim = reduce_axis)
     p = p.sum(dim = reduce_axis)
     t = targets.sum(dim = reduce_axis)
-    d = 2 * (intersection + smooth) / (p + t + smooth)
+    d =  (2 * intersection + smooth) / (p + t + smooth)
 
-    # we remove locations where t is background
-    return -d[t > 0].mean()
-
+    # ignore locations where t is background
+    idx = (t > 0).float()
+    return -(d * idx).sum() / idx.sum().clamp_min(1.0)
+    
 FUNCTIONAL_LOSSES = {
     "CrossEntropy": F.binary_cross_entropy_with_logits,
     "Dice": dice_loss,

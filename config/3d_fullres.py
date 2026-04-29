@@ -1,8 +1,10 @@
 # 3D Full Volume Training - High Accuracy
 # For research/server deployment where accuracy matters most
 
-out_dir = 'out-3d-full'
-input_shape = (128, 128, 128)  # full 3D volumes
+out_dir = 'checkpoints/3d_fullres'
+input_shape = (128, 128, 128)  # target 3D volume shape
+slice_mode = 'fullres'  # full resolution 3D patches
+in_channels = 1  # single channel input
 
 # High-accuracy model
 num_stages = 5  # deeper for better features 

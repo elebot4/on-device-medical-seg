@@ -3,9 +3,10 @@ ONNX export functionality for medical segmentation models.
 Supports dynamic input shapes for deployment on mobile/edge devices.
 """
 
+from pathlib import Path
+
 import torch
 import torch.onnx
-from pathlib import Path
 
 from model import UNet
 
@@ -223,5 +224,4 @@ if __name__ == "__main__":
         print("Model Information:")
         for key, value in info.items():
             print(f"  {key}: {value}")
-    else:
-        print(f"Checkpoint not found: {checkpoint_path}")
+    
