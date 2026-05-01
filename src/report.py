@@ -1,5 +1,5 @@
 """
-Segmentation report generation for medical images.
+Segmentation report generation for medical images. /!\ this file does not include LLM-based reporting /!\
 Creates human-readable summaries of segmentation results.
 """
 
