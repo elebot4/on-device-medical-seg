@@ -60,5 +60,7 @@ slurm/
 **/wandb
 
 # credentials for gauth and wandb;
+.credentials/
 credentials
 credentials.json
+
