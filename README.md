@@ -20,27 +20,28 @@ It is not a mobile application, not a clinically validated system, and not inten
 - FastAPI serving path for deployment-oriented testing.
 - Structured summary generation from segmentation outputs.
 
-## What this project is not
+## Snapshot (Axial T1, same slice)
 
-- Not a clinically validated tool.
-- Not a diagnostic system.
-- Not a mobile application.
-- Not a production deployment platform.
-- Not a claim of state-of-the-art segmentation performance.
+Single axial slice from raw BraTS data, shown as plain T1 and T1 with ground-truth overlap.
+
+<p align="center">
+    <img src="docs/figures/t1_input_no_overlay_snapshot.png" alt="Axial T1 input" width="49%" />
+    <img src="docs/figures/t1_input_gt_snapshot.png" alt="Axial T1 with ground-truth overlap" width="49%" />
+</p>
 
 ## Status
 
 | Component | Status | Notes |
 |---|---|---|
-| Training pipeline | Working | 2D / 3D U-Net variants with configurable runs |
-| Evaluation | Working | Segmentation-quality metrics over saved cases |
-| Batch prediction | Working | CLI wrapper for checkpoint-based inference |
-| ONNX export | In progress | Export available, parity checks being expanded |
-| Quantization | Experimental | Optional CPU-constrained benchmark workflow |
-| API deployment | Working | Minimal FastAPI wrapper for model inference |
-| Benchmarking | In progress | Runtime + memory + environment outputs |
-| Structured reporting | In progress | Deterministic summary first, LLM optional |
-| CI/tests | In progress | Existing checks plus incremental coverage |
+| Training pipeline | Done | 2D / 3D U-Net variants with configurable runs |
+| Evaluation | Done | Segmentation-quality metrics over saved cases |
+| Batch prediction | Done | CLI wrapper for checkpoint-based inference |
+| ONNX export | Done | Export available with parity validation workflow |
+| Quantization | Done | Optional CPU-constrained benchmark workflow |
+| API deployment | Done | Minimal FastAPI wrapper for model inference |
+| Benchmarking | Done | Runtime + memory + environment outputs |
+| Structured reporting | Done | Deterministic summary and optional LLM rewrite |
+| CI/tests | Done | Existing checks and coverage for core workflows |
 
 ## Repository layout
 
