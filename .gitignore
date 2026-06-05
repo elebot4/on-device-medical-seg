@@ -6,7 +6,6 @@ __pycache__/
 # PyTorch
 *.pt
 *.pdf
-*.png
 *.swp
 *.npy
 

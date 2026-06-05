@@ -25,8 +25,8 @@ It is not a mobile application, not a clinically validated system, and not inten
 Single axial slice from raw BraTS data, shown as plain T1 and T1 with ground-truth overlap.
 
 <p align="center">
-    <img src="docs/figures/t1_input_no_overlay_snapshot.png" alt="Axial T1 input" width="49%" />
-    <img src="docs/figures/t1_input_gt_snapshot.png" alt="Axial T1 with ground-truth overlap" width="49%" />
+    <img src="resources/images/t1_input_no_overlay_snapshot.png" alt="Axial T1 input" width="49%" />
+    <img src="resources/images/t1_input_seg_snapshot.png" alt="Axial T1 with ground-truth overlap" width="49%" />
 </p>
 
 ## Status
