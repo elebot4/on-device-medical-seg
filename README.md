@@ -2,6 +2,16 @@
 
 A research-engineering workbench for training, evaluating, benchmarking, and deploying medical image segmentation models across PyTorch, ONNX Runtime, CPU/GPU, CLI, and API-based settings.
 
+## Snapshot (Axial T1, same slice)
+
+Single axial slice from raw BraTS data, shown as plain T1 and T1 with ground-truth overlap.
+
+<p align="center">
+    <img src="resources/images/t1_input_no_overlay_snapshot.png" alt="Axial T1 input" width="49%" />
+    <img src="resources/images/t1_input_seg_snapshot.png" alt="Axial T1 with ground-truth overlap" width="49%" />
+</p>
+
+
 ## Project scope
 
 MedSeg focuses on the engineering path around medical image segmentation models: training, evaluation, inference, benchmarking, deployment-oriented execution, and structured output generation.
@@ -19,15 +29,6 @@ It is not a mobile application, not a clinically validated system, and not inten
 - Optional quantization experiments for CPU-constrained inference.
 - FastAPI serving path for deployment-oriented testing.
 - Structured summary generation from segmentation outputs.
-
-## Snapshot (Axial T1, same slice)
-
-Single axial slice from raw BraTS data, shown as plain T1 and T1 with ground-truth overlap.
-
-<p align="center">
-    <img src="resources/images/t1_input_no_overlay_snapshot.png" alt="Axial T1 input" width="49%" />
-    <img src="resources/images/t1_input_seg_snapshot.png" alt="Axial T1 with ground-truth overlap" width="49%" />
-</p>
 
 ## Status
 
